@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Max-Saturation WebGPU π Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #080c10;
+    --panel:     #0d1520;
+    --border:    #1a2d42;
+    --accent:    #00d4ff;
+    --accent2:   #0090b8;
+    --dim:       #3a5568;
+    --muted:     #607080;
+    --text:      #c8dde8;
+    --text-hi:   #e8f4f8;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2.5rem 1rem 4rem;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.18;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .shell { position: relative; z-index: 1; width: 100%; max-width: 720px; }
+
+  .header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 2rem; }
+  .header-title { font-family: 'IBM Plex Mono', monospace; font-size: 1.6rem; font-weight: 700; color: var(--accent); }
+  .header-sub { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 1.5rem; margin-bottom: 1rem; }
+  .card-label { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 600; color: var(--dim); letter-spacing: 0.18em; text-transform: uppercase; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+  .card-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .input-row { display: flex; gap: 0.75rem; align-items: flex-end; }
+  .field { flex: 1; }
+  .field label { display: block; font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; font-weight: 600; color: var(--dim); text-transform: uppercase; margin-bottom: 0.45rem; }
+  input[type=number] { width: 100%; padding: 0.7rem 1rem; font-family: 'IBM Plex Mono', monospace; font-size: 1.1rem; font-weight: 600; background: #060a10; color: var(--text-hi); border: 1px solid var(--border); border-radius: 3px; outline: none; }
+  input[type=number]:focus { border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(0,144,184,0.15); }
+  
+  #calc-btn { padding: 0.7rem 1.6rem; font-family: 'IBM Plex Mono', monospace; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; background: var(--accent); color: #000; border: none; border-radius: 3px; cursor: pointer; transition: 0.2s; }
+  #calc-btn:hover:not(:disabled) { background: #33deff; box-shadow: 0 0 14px rgba(0,212,255,0.35); }
+  #calc-btn:disabled { background: var(--dim); color: var(--muted); cursor: not-allowed; }
+
+  #progress-wrap { display: none; margin-top: 1rem;}
+  .progress-track { width: 100%; height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 0.5rem; }
+  #progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); width: 0%; transition: width 0.12s linear; }
+  #status { font-family: 'IBM Plex Mono', monospace; font-size: 0.75rem; color: var(--muted); }
+
+  #result-box { display: none; background: #030810; border: 1px solid var(--accent2); border-radius: 4px; padding: 1.75rem 2rem; margin-top: 1rem; text-align: center; }
+  .result-tag { font-family: 'IBM Plex Mono', monospace; font-size: 0.65rem; font-weight: 600; color: var(--muted); text-transform: uppercase; margin-bottom: 0.6rem; }
+  .result-digit { font-family: 'IBM Plex Mono', monospace; font-size: 6.5rem; font-weight: 700; color: var(--accent); text-shadow: 0 0 30px rgba(0,212,255,0.5); line-height: 1; margin-bottom: 1rem;}
+  .result-context { font-family: 'IBM Plex Mono', monospace; font-size: 0.82rem; color: var(--muted); display: flex; gap: 2rem; justify-content: center; }
+  .result-context strong { color: var(--text); }
+  .result-meta { margin-top: 1rem; font-size: 0.73rem; color: var(--dim); font-family: 'IBM Plex Mono', monospace; }
+
+  .algo-note { font-size: 0.78rem; color: var(--muted); line-height: 1.6; }
+  .bullet { color: var(--accent2); font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; margin-right: 0.5rem;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="header">
+    <div class="header-title">n<sup>th</sup> digit of π</div>
+    <div class="header-sub">Hardware Accelerated BBP Algorithm</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Digit request</div>
+    <div class="input-row">
+      <div class="field">
+        <label for="n-input">n — position (0-indexed)</label>
+        <input type="number" id="n-input" value="100000000" min="0" step="1">
+      </div>
+      <button id="calc-btn">Run GPU</button>
+    </div>
+    
+    <div id="progress-wrap">
+      <div class="progress-track"><div id="progress-fill"></div></div>
+      <div id="status">Waiting for WebGPU Initialization...</div>
+    </div>
+
+    <div id="result-box">
+      <div class="result-tag" id="result-tag">Calculated Hex Digit</div>
+      <div class="result-digit" id="final-digit">—</div>
+      <div class="result-context">
+        <span><strong id="r-dec">—</strong> decimal</span>
+        <span>fractional offset ≈ <strong id="r-frac">—</strong></span>
+      </div>
+      <div class="result-meta" id="r-meta">—</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Extra notes</div>
+    <div class="algo-note">
+      <div><span class="bullet">▸</span><span><strong>N - Positioning</strong> — Digits should be inputed where the first digit of pi is at n = 0.</span></div>
+      <div style="margin-top: 0.5rem;"><span class="bullet">▸</span><span><strong>Eg:</strong> 3.243F6A8885A308D31319 , for n = 0 : 2, for n = 1 : 4, for n = 2 : 3 ... Happy pi day!</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- WGSL COMPUTE SHADER (64-bit Emulator) ---
+const shaderCode = `
+struct Params { start_k: u32, chunk_size: u32, n: u32, j: u32 }
+@group(0) @binding(0) var<storage, read> params: Params;
+@group(0) @binding(1) var<storage, read_write> out_t: array<vec2<u32>>;
+@group(0) @binding(2) var<storage, read_write> out_r: array<vec2<u32>>;
+
+// 64-bit emulation using vec2<u32> (x = low, y = high)
+fn add64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    let lo = a.x + b.x;
+    let carry = u32(lo < a.x);
+    return vec2<u32>(lo, a.y + b.y + carry);
+}
+
+fn sub64(a: vec2<u32>, b: vec2<u32>) -> vec2<u32> {
+    let lo = a.x - b.x;
+    let borrow = u32(a.x < b.x);
+    return vec2<u32>(lo, a.y - b.y - borrow);
+}
+
+fn geq64(a: vec2<u32>, b: vec2<u32>) -> bool {
+    if (a.y > b.y) { return true; }
+    if (a.y < b.y) { return false; }
+    return a.x >= b.x;
+}
+
+fn shr64_1(a: vec2<u32>) -> vec2<u32> {
+    return vec2<u32>((a.x >> 1u) | ((a.y & 1u) << 31u), a.y >> 1u);
+}
+
+fn add64_mod(a: vec2<u32>, b: vec2<u32>, m: vec2<u32>) -> vec2<u32> {
+    var sum = add64(a, b);
+    if (geq64(sum, m)) { sum = sub64(sum, m); }
+    return sum;
+}
+
+fn mul64_mod(a: vec2<u32>, b: vec2<u32>, m: vec2<u32>) -> vec2<u32> {
+    var res = vec2<u32>(0u, 0u);
+    var a_var = a;
+    var b_var = b;
+    while (b_var.x > 0u || b_var.y > 0u) {
+        if ((b_var.x & 1u) != 0u) { res = add64_mod(res, a_var, m); }
+        b_var = shr64_1(b_var);
+        a_var = add64_mod(a_var, a_var, m);
+    }
+    return res;
+}
+
+fn modPow64(base: u32, exp: u32, m: vec2<u32>) -> vec2<u32> {
+    var res = vec2<u32>(1u, 0u);
+    var b = vec2<u32>(base, 0u);
+    var e = exp;
+    if (geq64(b, m)) { b = sub64(b, m); }
+    while (e > 0u) {
+        if ((e & 1u) != 0u) { res = mul64_mod(res, b, m); }
+        e = e >> 1u;
+        b = mul64_mod(b, b, m);
+    }
+    return res;
+}
+
+fn calc_r(k: u32, j: u32) -> vec2<u32> {
+    let hi = k >> 29u;
+    let lo = (k << 3u) + j;
+    let carry = u32(lo < j);
+    return vec2<u32>(lo, hi + carry);
+}
+
+@compute @workgroup_size(256)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if (idx >= params.chunk_size) { return; }
+    
+    let k = params.start_k + idx;
+    if (k > params.n) { return; }
+    
+    let r = calc_r(k, params.j);
+    let t = modPow64(16u, params.n - k, r);
+    
+    out_t[idx] = t;
+    out_r[idx] = r;
+}
+`;
+
+// --- WEBGPU ENGINE LOGIC ---
+let device, pipeline;
+const CHUNK_SIZE = 4194304; // 4.19M threads to saturate SMs completely
+
+async function initWebGPU() {
+    const statusEl = document.getElementById('status');
+    if (!navigator.gpu) return statusEl.textContent = "Error: WebGPU not supported.";
+    const adapter = await navigator.gpu.requestAdapter();
+    device = await adapter.requestDevice();
+    pipeline = device.createComputePipeline({
+        layout: 'auto', compute: { module: device.createShaderModule({ code: shaderCode }), entryPoint: 'main' }
+    });
+    statusEl.textContent = `Hardware Ready: ${adapter.info ? adapter.info.device : 'WebGPU'}`;
+    return true;
+}
+
+document.addEventListener('DOMContentLoaded', initWebGPU);
+
+document.getElementById('calc-btn').addEventListener('click', async () => {
+    if (!device) return;
+    const n = parseInt(document.getElementById('n-input').value, 10);
+    if (isNaN(n) || n < 0) return alert("Please enter a valid positive integer.");
+
+    const btn = document.getElementById('calc-btn');
+    const statusEl = document.getElementById('status');
+    const progWrap = document.getElementById('progress-wrap');
+    const progFill = document.getElementById('progress-fill');
+    const resultBox = document.getElementById('result-box');
+    
+    btn.disabled = true;
+    resultBox.style.display = 'none';
+    progWrap.style.display = 'block';
+    progFill.style.width = '0%';
+    
+    const startTime = performance.now();
+
+    // Setup 33.5 MB WebGPU Storage Buffers
+    const paramBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    const tOutBuffer = device.createBuffer({ size: CHUNK_SIZE * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const rOutBuffer = device.createBuffer({ size: CHUNK_SIZE * 8, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const tReadBuffer = device.createBuffer({ size: CHUNK_SIZE * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    const rReadBuffer = device.createBuffer({ size: CHUNK_SIZE * 8, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+
+    const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: paramBuffer } },
+            { binding: 1, resource: { buffer: tOutBuffer } },
+            { binding: 2, resource: { buffer: rOutBuffer } }
+        ]
+    });
+
+    const jValues = [1, 4, 5, 6];
+    const sums = { 1: 0, 4: 0, 5: 0, 6: 0 };
+    const totalChunks = jValues.length * Math.ceil((n + 1) / CHUNK_SIZE);
+    let chunksProcessed = 0;
+
+    try {
+        for (let j of jValues) {
+            for (let startK = 0; startK <= n; startK += CHUNK_SIZE) {
+                let currentChunkSize = Math.min(CHUNK_SIZE, n - startK + 1);
+                let workgroups = Math.ceil(currentChunkSize / 256);
+
+                // Write params: [start_k, chunk_size, n, j]
+                device.queue.writeBuffer(paramBuffer, 0, new Uint32Array([startK, currentChunkSize, n, j]));
+
+                const encoder = device.createCommandEncoder();
+                const pass = encoder.beginComputePass();
+                pass.setPipeline(pipeline);
+                pass.setBindGroup(0, bindGroup);
+                pass.dispatchWorkgroups(workgroups);
+                pass.end();
+
+                encoder.copyBufferToBuffer(tOutBuffer, 0, tReadBuffer, 0, currentChunkSize * 8);
+                encoder.copyBufferToBuffer(rOutBuffer, 0, rReadBuffer, 0, currentChunkSize * 8);
+                device.queue.submit([encoder.finish()]);
+
+                await Promise.all([tReadBuffer.mapAsync(GPUMapMode.READ), rReadBuffer.mapAsync(GPUMapMode.READ)]);
+                const tArray = new Uint32Array(tReadBuffer.getMappedRange());
+                const rArray = new Uint32Array(rReadBuffer.getMappedRange());
+
+                // Lossless CPU accumulation from 64-bit chunks
+                for (let i = 0; i < currentChunkSize; i++) {
+                    let t_val = tArray[i*2+1] * 4294967296 + tArray[i*2];
+                    let r_val = rArray[i*2+1] * 4294967296 + rArray[i*2];
+                    sums[j] = (sums[j] + t_val / r_val) % 1.0;
+                }
+
+                tReadBuffer.unmap();
+                rReadBuffer.unmap();
+
+                chunksProcessed++;
+                const percent = (chunksProcessed / totalChunks) * 100;
+                progFill.style.width = `${percent}%`;
+                statusEl.textContent = `Streaming 33.5MB GPU Batches... ${percent.toFixed(1)}% complete`;
+            }
+
+            // Infinite Tail Sum for k > n
+            let rightSum = 0;
+            let k = n + 1;
+            while (true) {
+                let r = 8 * k + j;
+                let t = Math.pow(16, n - k);
+                if (t < 1e-15) break; 
+                rightSum = (rightSum + t / r) % 1.0;
+                k++;
+            }
+            sums[j] = (sums[j] + rightSum) % 1.0;
+        }
+
+        let piFraction = (4 * sums[1] - 2 * sums[4] - sums[5] - sums[6]) % 1.0;
+        if (piFraction < 0) piFraction += 1.0;
+        
+        const decimalValue = Math.floor(piFraction * 16);
+        const hexDigit = decimalValue.toString(16).toUpperCase();
+        
+        const seconds = ((performance.now() - startTime) / 1000).toFixed(2);
+        
+        progWrap.style.display = 'none';
+        statusEl.textContent = 'Hardware Saturation Complete';
+        document.getElementById('final-digit').textContent = hexDigit;
+        document.getElementById('r-dec').textContent = decimalValue;
+        document.getElementById('r-frac').textContent = piFraction.toFixed(8);
+        document.getElementById('r-meta').textContent = `Computed in ${seconds}s · BBP Hex Extraction`;
+        resultBox.style.display = 'block';
+
+    } catch (e) {
+        statusEl.textContent = "Pipeline Error: " + e.message;
+        console.error(e);
+    }
+
+    btn.disabled = false;
+});
+</script>
+</body>
+</html>
